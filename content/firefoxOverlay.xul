@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://lcgi/skin/overlay.css" type="text/css"?>
+<!DOCTYPE overlay SYSTEM "chrome://lcgi/locale/lcgi.dtd">
+<overlay id="lcgi-overlay"
+         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+
+  <!-- Associate a script with this overlay -->
+  <script src="overlay.js"/>
+
+  <!--
+   declare a string bundle to provide localisation for the scripts
+   Localisation for the XUL itself comes from the DTD declared above.
+   -->
+  <stringbundleset id="stringbundleset">
+    <stringbundle id="lcgi-strings" src="chrome://lcgi/locale/lcgi.properties"/>
+  </stringbundleset>
+
+  <!-- Add an item to the tools menu -->
+  <menupopup id="menu_ToolsPopup">
+    <menuitem id="lcgi-open" label="&lcgi.label;"
+              oncommand="lcgi.onMenuItemCommand(event);"/>
+  </menupopup>
+</overlay>

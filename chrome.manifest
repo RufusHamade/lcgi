@@ -1,0 +1,4 @@
+content	lcgi	content/
+locale	lcgi	en-US	locale/en-US/
+skin	lcgi	classic/1.0	skin/
+overlay	chrome://browser/content/browser.xul	chrome://lcgi/content/firefoxOverlay.xul
