@@ -351,6 +351,7 @@ LCGIHandler.prototype = {
     converter.writeString("export PATH_INFO=\""+path+"\"\n");
     converter.writeString("export PATH_TRANSLATED=\""+path+"\"\n");
     converter.writeString("export SCRIPT_NAME=\""+path+"\"\n");
+    converter.writeString("export SCRIPT_FILENAME=\""+path+"\"\n"); // Required for Ubuntu's php-cgi
     converter.writeString("export QUERY_STRING=\""+args+"\"\n");// Needs to be updated with query details
     converter.writeString("export REMOTE_HOST=localhost\n");
     converter.writeString("export REMOTE_ADDR=127.0.0.1\n");
