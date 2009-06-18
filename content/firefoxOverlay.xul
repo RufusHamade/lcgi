@@ -15,9 +15,14 @@
     <stringbundle id="lcgi-strings" src="chrome://lcgi/locale/lcgi.properties"/>
   </stringbundleset>
 
+  <keyset id="mainKeyset">
+    <key id="lcgi_keyOpen" modifiers="alt" key="O" oncommand="lcgi.onMenuItemCommand();" />
+  </keyset>
+
   <!-- Add an item to the tools menu -->
   <menupopup id="menu_ToolsPopup">
-    <menuitem id="lcgi-open" label="&lcgi.label;"
+    <menuitem id="lcgi_Open" label="&lcgi.label;"
+              key="lcgi_keyOpen"
               oncommand="lcgi.onMenuItemCommand(event);"/>
   </menupopup>
 </overlay>
