@@ -280,13 +280,20 @@ LCGIHandler.prototype = {
       return uri;
     }
 
+    uri.scheme = LCGI_PROTOCOL_SCHEME;
+
+    if (aSpec.indexOf('/') == 0) {
+      log(1, " Got relative URI, but absolute path");
+      uri.path = aSpec;
+      return uri;
+    }
+
     var idx  = aBase.path.lastIndexOf('/');
     var path = aBase.path.substring(0,idx+1);
 
     log(1, " Prepending aBase path " +path);
     aSpec = path + aSpec;
 
-    uri.scheme = LCGI_PROTOCOL_SCHEME;
     uri.path   = aSpec;
     log(1, " Set uri to "+uri.spec);
     return uri;
