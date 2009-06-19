@@ -14,7 +14,7 @@ you should do the following:
      [your profile folder]\extensions\
   3. Restart Firefox.
 
-For more information, see the Mozillazine Knowledge Base:
-http://kb.mozillazine.org/Getting_started_with_extension_development
+Master source code available from     git://github.com/RufusHamade/lcgi.git
+Development discussion available from http://rufushamade.blogspot.com/search/label/lcgi
 
--Ted Mielczarek <ted.mielczarek@gmail.com>
+- Rufus Hamade (rufus (at) myfanwy.org.uk)
