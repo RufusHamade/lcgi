@@ -286,6 +286,7 @@ LCGIHandler.prototype = {
     log(1, " Prepending aBase path " +path);
     aSpec = path + aSpec;
 
+    uri.scheme = LCGI_PROTOCOL_SCHEME;
     uri.path   = aSpec;
     log(1, " Set uri to "+uri.spec);
     return uri;
