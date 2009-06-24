@@ -328,12 +328,19 @@ LCGIChannel.prototype = {
         var line = data.substring(start, end);
         log(1, " Line "+line);
         var ctre =/Content-type:\s*(\S+)/i;
-        var stre =/Status:\s*(\S+)/i;
         var match = ctre.exec(line);
         if (match){
           log(1, " Got content type "+match[1]);
           this.contentType = match[1];
         }
+
+        var stre =/Status:\s*(\S+)/i;
+        match = stre.exec(line);
+        if (match){
+          log(1, " Got status "+match[1]);
+          this.status = parseInt(match[1]);
+        }
+
         start = end+1;
       } while (start < aCount && line.length > 2);
 
