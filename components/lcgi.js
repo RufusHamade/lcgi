@@ -62,6 +62,125 @@ const LCGI_PROTOCOL_CONTRACTID = "@mozilla.org/network/protocol;1?name="+LCGI_PR
 const LCGI_PROTOCOL_CLASSID    = Components.ID("{c2f4e52d-a93d-4d53-8d56-79a0def5885e}");
 
 // **************************************************************************
+// Error channel implementation.  Return an error message to the user.
+//
+function LCGIErrorChannel(aUri, aRetcode) {
+  log(1, "Created LCGIErrorChannel");
+  //this.wrappedJSObject        = this;
+  this._done                  = false;
+  this._retcode               = aRetcode;
+
+  // nsIRequest fields
+  this.name                   = aUri;
+  this.loadFlags              = 0;
+  this.loadGroup              = null;
+  this.status                 = 501;
+
+  // nsIChannel fields
+  this.contentLength          = -1;
+  this.contentType            = "text/html";
+  this.contentCharset         = "utf-8";
+  this.URI                    = aUri;
+  this.originalURI            = aUri;
+  this.owner                  = null;
+  this.notificationCallbacks  = null;
+  this.securityInfo           = null;
+
+  log(1, " URI:     " + this.URI.spec);
+}
+
+LCGIErrorChannel.prototype = {
+  QueryInterface: function(aIID) {
+    log(0, "LCGIErrorChannel:QueryInterface "+aIID);
+
+    if (aIID.equals(Ci.nsISupports)) {
+      log(0, " Returning nsISupports");
+      return this;
+    }
+
+    if (aIID.equals(Ci.nsIRequest)) {
+      log(0, " Returning nsIRequest");
+      return this;
+    }
+
+    if (aIID.equals(Ci.nsIChannel)) {
+      log(0, " Returning nsIChannel");
+      return this;
+    }
+
+    log(0, " Throwing not-supported");
+    throw Cr.NS_ERROR_NO_INTERFACE;
+  },
+
+  // nsIReqiest interfaces
+  isPending: function() {
+    log(1, "LCGIErrorChannel:isPending");
+    return !this.done;
+  },
+
+  // For the next few methods, as we do everything in a single op, we can
+  // (other than saving off the status value) safely ignore these ops.
+  cancel: function(aStatus){
+    log(1, "LCGIErrorChannel:cancel");
+    this.status = aStatus;
+    this.done   = true;
+  },
+
+  suspend: function(aStatus){
+    log(1, "LCGIErrorChannel:suspend");
+    this.status = aStatus;
+  },
+
+  resume: function(aStatus){
+    log(1, "LCGIErrorChannel:resume");
+    this.status = aStatus;
+  },
+
+  // Channel interfaces
+  // We don't implement the open function as it seems to be deprecated.
+  open: function() {
+    log(1, "LCGIErrorChannel:open");
+    throw Cr.NS_ERROR_NOT_IMPLEMENTED;
+  },
+
+  // The browser uses this to start a fetch.
+  //
+  // Normally we'd start the machinery to fetch the data, and as it
+  // became available call the InputStreamListener methods as appropriate.
+  // But all the data is available immediately, so we can call the
+  // stream listener methods inline.
+  asyncOpen: function(aListener, aContext) {
+    log(1, "LCGIErrorChannel:asyncOpen");
+    this.listener = aListener;
+    this.context  = aContext;
+
+    log(1, " Invoking onStartRequest");
+    aListener.onStartRequest(this, aContext);
+
+    // Create a pipe and fill it with data to display.
+    log(1, " Preparing pipe");
+    var pipe = Cc["@mozilla.org/pipe;1"].createInstance(Ci.nsIPipe);
+    pipe.init(true,true,0,0,null);
+    var result = '<html><head><title>LCGI Script Error.</title></head>'           +
+                 '<body><h1>LCGI Script Error.</h1>'                                +
+                 '<h2>CGI script exited with return code '+this._retcode+ ' and no content.</h2>' +
+                 '</body></html>';
+    pipe.outputStream.write(result,result.length);
+    pipe.outputStream.close();
+
+    // Pass the InputStream part of the pipe to the listener.
+    log(1, " Invoking onDataAvailable");
+    aListener.onDataAvailable(this, aContext, pipe.inputStream, 0, result.length);
+
+    log(1, " Invoking onStopRequest");
+    this.done = true;
+    aListener.onStopRequest(this, aContext, this.status);
+  }
+
+};
+
+
+// **************************************************************************
 // LCGI channel implementation
 // Returned by the protocol handler to actually load the page for the browser.
 // Has to implement nsIChannel and nsIRequest.
@@ -87,7 +206,7 @@ function LCGIChannel(aUri, aRslt) {
   // nsIChannel fields.  Some of these will get updated when we get some
   // content back from the file
   this.contentLength          = -1;
-  this.contentType            = "text/html";
+  this.contentType            = "text/plain";
   this.contentCharset         = "utf-8";
   this.URI                    = aUri;
   this.originalURI            = aUri;
@@ -208,14 +327,21 @@ LCGIChannel.prototype = {
         }
         var line = data.substring(start, end);
         log(1, " Line "+line);
-        var re =/Content-type:\s*(\S+)/i;
-        var match = re.exec(line);
+        var ctre =/Content-type:\s*(\S+)/i;
+        var stre =/Status:\s*(\S+)/i;
+        var match = ctre.exec(line);
         if (match){
           log(1, " Got content type "+match[1]);
           this.contentType = match[1];
         }
         start = end+1;
-      } while (line.length > 2);
+      } while (start < aCount && line.length > 2);
+
+      if (start >= aCount) {
+        // We may have found headers, but we don't have any content.
+        // Show the headers to the client instead.
+        start = 0;
+      }
 
       log(1, " Pass rest of data to _xListener");
       data = data.substring(start);
@@ -394,8 +520,8 @@ LCGIHandler.prototype = {
     log(1, " Process returned "+process.exitValue);
     envs.remove(false);
 
-    if (process.exitValue != 0) {
-      throw Cr.NS_ERROR_FILE_EXECUTION_FAILED;
+    if (process.exitValue != 0 && rslt.fileSize == 0) {
+      return new LCGIErrorChannel(aUri, process.exitValue);
     }
 
     return new LCGIChannel(aUri, rslt);
