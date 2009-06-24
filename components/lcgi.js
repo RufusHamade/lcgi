@@ -67,11 +67,16 @@ const LCGI_PROTOCOL_CLASSID    = Components.ID("{c2f4e52d-a93d-4d53-8d56-79a0def
 // Has to implement nsIChannel and nsIRequest.
 // We also implement nsIStreamListener so we get notified of
 // events from aFchan.
-// aFchan should be the FileChannel object containing the result.
-function LCGIChannel(aUri, aFchan) {
+// aRslt should be the File object containing the result.
+function LCGIChannel(aUri, aRslt) {
+  log(1, "LCGIChannel: Created");
+  log(1, " Returning contents of file " + aRslt.path);
   //this.wrappedJSObject        = this;
   this._done                  = false;
-  this._fchan                 = aFchan;
+  this._rslt                 = aRslt;
+  var ioServ  = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
+  var rslturi = ioServ.newFileURI(aRslt);
+  this._fchan                 = ioServ.newChannelFromURI(rslturi);
 
   // nsIRequest fields
   this.name                   = aUri;
@@ -90,7 +95,6 @@ function LCGIChannel(aUri, aFchan) {
   this.notificationCallbacks  = null;
   this.securityInfo           = null;
 
-  log(1, "LCGIChannel: Created");
   log(1, " URI:     " + this.URI.spec);
 }
 
@@ -234,6 +238,7 @@ LCGIChannel.prototype = {
     log(1, "LCGIChannel: onStopRequest from fchan");
     this.status = aStatusCode;
     this._xListener.onStopRequest(this,this._xContext, this.status);
+    this._rslt.remove(false);
   }
 };
 
@@ -335,6 +340,13 @@ LCGIHandler.prototype = {
     envs.append("lcgi-envs");
     rslt.append("lcgi-rslt");
 
+    // Make sure filenames are unique.  CreateUnique updates the the
+    // nsIFile with the unique filename.  It also opens and closes the file.
+    // Probably to ensure file permissions get set correctly or something.
+    // Rather strange API but there you go.
+    envs.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
+    rslt.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
+
     log(1, " env file:    "+envs.path);
     log(1, " rslt file:   "+rslt.path);
 
@@ -380,16 +392,13 @@ LCGIHandler.prototype = {
     var args = [cgiwrap.path, envs.path, fileuri.path, rslt.path];
     process.run(true, args, args.length);
     log(1, " Process returned "+process.exitValue);
+    envs.remove(false);
 
     if (process.exitValue != 0) {
       throw Cr.NS_ERROR_FILE_EXECUTION_FAILED;
     }
 
-    var rslturi = ioServ.newFileURI(rslt);
-    log(1, " Returning contents of file " + rslturi.spec);
-    var chan    = ioServ.newChannelFromURI(rslturi);
-
-    return new LCGIChannel(aUri, chan);
+    return new LCGIChannel(aUri, rslt);
   }
 };
 
