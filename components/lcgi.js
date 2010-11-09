@@ -37,18 +37,24 @@
 // http://groups.google.com/group/mozilla.dev.tech.xpcom/browse_thread/thread/fd8343423982c154?pli=1
 // Thanks to all those people who've navigated these choppy waters before me;->
 // **************************************************************************
+
 const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cr = Components.results;
+const Cu = Components.utils;
+
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+//Cu.import("resource://gre/modules/subprocess.jsm");
 
 // **************************************************************************
 // If you want to trace out the execution of this script, uncomment
 // the two dump lines below and run firefox from the commandline.
 function log(lvl, x)
 {
-  if (lvl < 1)
+  if (lvl <= 0)
     return;
 
+  dump('LCGI: ');
   dump(x);
   dump('\n');
 }
@@ -90,27 +96,7 @@ function LCGIErrorChannel(aUri, aRetcode) {
 }
 
 LCGIErrorChannel.prototype = {
-  QueryInterface: function(aIID) {
-    log(0, "LCGIErrorChannel:QueryInterface "+aIID);
-
-    if (aIID.equals(Ci.nsISupports)) {
-      log(0, " Returning nsISupports");
-      return this;
-    }
-
-    if (aIID.equals(Ci.nsIRequest)) {
-      log(0, " Returning nsIRequest");
-      return this;
-    }
-
-    if (aIID.equals(Ci.nsIChannel)) {
-      log(0, " Returning nsIChannel");
-      return this;
-    }
-
-    log(0, " Throwing not-supported");
-    throw Cr.NS_ERROR_NO_INTERFACE;
-  },
+    QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports, Ci.nsIRequest, Ci.nsIChannel]),
 
   // nsIReqiest interfaces
   isPending: function() {
@@ -176,7 +162,6 @@ LCGIErrorChannel.prototype = {
     this.done = true;
     aListener.onStopRequest(this, aContext, this.status);
   }
-
 };
 
 
@@ -218,39 +203,7 @@ function LCGIChannel(aUri, aRslt) {
 }
 
 LCGIChannel.prototype = {
-  QueryInterface: function(aIID) {
-    log(0, "LCGIChannel: QueryInterface "+aIID);
-
-    if (aIID.equals(Ci.nsISupports)) {
-      log(0, " Returning nsISupports");
-      return this;
-    }
-
-    // nsiChannel interfaces
-    if (aIID.equals(Ci.nsIRequest)) {
-      log(0, " Returning nsIRequest");
-      return this;
-    }
-
-    if (aIID.equals(Ci.nsIChannel)) {
-      log(0, " Returning nsIChannel");
-      return this;
-    }
-
-    // nsiStreamListener interfaces
-    if (aIID.equals(Ci.nsIRequestObserver)) {
-      log(0, " Returning nsIRequestObserver");
-      return this;
-    }
-
-    if (aIID.equals(Ci.nsIStreamListener)) {
-      log(0, " Returning nsIStreamListener");
-      return this;
-    }
-
-    log(0, " Throwing not-supported");
-    throw Cr.NS_ERROR_NO_INTERFACE;
-  },
+    QueryInterface : XPCOMUtils.generateQI([Ci.nsISupports, Ci.nsIRequest, Ci.nsIChannel, Ci.nsIRequestObserver, Ci.nsIStreamListener]),
 
   // ***
   // nsIChannel interfaces
@@ -273,6 +226,7 @@ LCGIChannel.prototype = {
     this._fchan.asyncOpen(this, this);
   },
 
+  // ***
   // nsIRequest interfaces.  These are (potentially) called by
   // _xListener and other external ops.
   // We should pass on the function calls to _fchan
@@ -382,21 +336,19 @@ function LCGIHandler() {
 }
 
 LCGIHandler.prototype = {
-  QueryInterface: function(aIID) {
-    if (!aIID.equals(Ci.nsIProtocolHandler) &&
-        !aIID.equals(Ci.nsISupports)){
-      throw Cr.NS_ERROR_NO_INTERFACE;
-    }
-    return this;
-  },
+    classDescription: LCGI_PROTOCOL_NAME,
+    classID:          LCGI_PROTOCOL_CLASSID,
+    contractID:       LCGI_PROTOCOL_CONTRACTID,
 
-  scheme: LCGI_PROTOCOL_SCHEME,
-  defaultPort: -1,
-  protocolFlags: Ci.nsIProtocolHandler.URI_IS_LOCAL_FILE,
+    QueryInterface : XPCOMUtils.generateQI([Ci.nsIProtocolHandler, Ci.nsISupports]),
 
-  allowPort: function(aPort, aScheme) {
-    return false;
-  },
+    scheme: LCGI_PROTOCOL_SCHEME,
+    defaultPort: -1,
+    protocolFlags: Ci.nsIProtocolHandler.URI_IS_LOCAL_FILE,
+
+    allowPort: function(aPort, aScheme) {
+        return false;
+    },
 
   newURI: function(aSpec, aCharset, aBase) {
     // Should probably use nsStandardURL to do this to be consistent.
@@ -516,7 +468,13 @@ LCGIHandler.prototype = {
     // And any other http request headers.
     converter.close();
 
-    log(1, " Invoking script " + fileuri.path);
+    //log(1, " Invoking script " + fileuri.path);
+    //var process = subprocess.call({
+	//command: "/bin/bash",
+    //    arguments: [cgiwrap.path, envs.path, fileuri.path, rslt.path]
+    //});
+    //process.wait();
+
     var bash    = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
     bash.initWithPath("/bin/sh");
     var process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
@@ -535,66 +493,7 @@ LCGIHandler.prototype = {
   }
 };
 
-// **************************************************************************
-// Rest of this is boilerplate "copied" from
-// http://hyperstruct.net/2006/8/10/your-first-javascript-xpcom-component-in-10-minutes
-// and
-// http://kb.mozillazine.org/Implementing_XPCOM_components_in_JavaScript
-
-// LCGI handler factory.   Create a new LCGI handler
-var LCGIHandlerFactory = {
-  createInstance: function(aOuter, aIID) {
-    log(1, "Creating lcgi handler");
-    if (aOuter != null){
-      throw Cr.NS_ERROR_NO_AGGREGATION;
-    }
-
-    return new LCGIHandler().QueryInterface(aIID);
-  }
-};
-
-// LCGI module.  Register the interface and factory.
-var LCGIHandlerModule = {
-  _firstTime: true,
-
-  registerSelf: function(aCompMgr, aFileSpec, aLocation, aType) {
-    if (this._firstTime) {
-      this._firstTime = false;
-      throw Cr.NS_ERROR_FACTORY_REGISTER_AGAIN;
-    }
-
-    aCompMgr = aCompMgr.QueryInterface(Ci.nsIComponentRegistrar);
-    aCompMgr.registerFactoryLocation(LCGI_PROTOCOL_CLASSID,
-                                     LCGI_PROTOCOL_NAME,
-                                     LCGI_PROTOCOL_CONTRACTID,
-                                     aFileSpec,
-                                     aLocation,
-                                     aType);
-  },
-
-  unregisterSelf: function(aCompMgr, aLocation, aType) {
-    aCompMgr = aCompMgr.QueryInterface(Ci.nsIComponentRegistrar);
-    aCompMgr.unregisterFactoryLocation(LCGI_PROTOCOL_CLASSID, aLocation);
-  },
-
-  getClassObject: function(aCompMgr, aCID, aIID) {
-    if (!aIID.equals(Ci.nsIFactory)){
-      throw Cr.NS_ERROR_NOT_IMPLEMENTED;
-    }
-
-    if (aCID.equals(LCGI_PROTOCOL_CLASSID)){
-      return LCGIHandlerFactory;
-    }
-
-    throw Cr.NS_ERROR_NO_INTERFACE;
-  },
-
-  canUnload: function(aCompMgr) {
-    return true;
-  }
-};
-
 // initialization
-function NSGetModule(aCompMgr, aFileSpec) {
-  return LCGIHandlerModule;
-}
+var NSGetFactory = XPCOMUtils.generateNSGetFactory([LCGIHandler]);
+
+log(1, " xxxxxxxxxxxxxx loaded LCGI classes");

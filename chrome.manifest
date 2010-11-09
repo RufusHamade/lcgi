@@ -1,4 +1,6 @@
-content	lcgi	content/
-locale	lcgi	en-US	locale/en-US/
-skin	lcgi	classic/1.0	skin/
-overlay	chrome://browser/content/browser.xul	chrome://lcgi/content/firefoxOverlay.xul
+content	  lcgi content/
+component {c2f4e52d-a93d-4d53-8d56-79a0def5885e} components/lcgi.js 
+contract  @mozilla.org/network/protocol;1?name=lcgi {c2f4e52d-a93d-4d53-8d56-79a0def5885e}
+locale	  lcgi	en-US	locale/en-US/
+skin	  lcgi	classic/1.0	skin/
+overlay	  chrome://browser/content/browser.xul	chrome://lcgi/content/firefoxOverlay.xul
