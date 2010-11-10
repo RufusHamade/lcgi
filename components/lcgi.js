@@ -44,7 +44,7 @@ const Cr = Components.results;
 const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-//Cu.import("resource://gre/modules/subprocess.jsm");
+Cu.import("resource://gre/modules/subprocess.jsm");
 
 // **************************************************************************
 // If you want to trace out the execution of this script, uncomment
@@ -420,19 +420,15 @@ LCGIHandler.prototype = {
 
     var ds      = Cc["@mozilla.org/file/directory_service;1"].getService(Ci.nsIProperties);
     var tmpdir  = ds.get("TmpD", Ci.nsIFile);
-    var envs    = tmpdir.clone();
     var rslt    = tmpdir.clone();
-    envs.append("lcgi-envs");
     rslt.append("lcgi-rslt");
 
     // Make sure filenames are unique.  CreateUnique updates the the
     // nsIFile with the unique filename.  It also opens and closes the file.
     // Probably to ensure file permissions get set correctly or something.
     // Rather strange API but there you go.
-    envs.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
     rslt.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
 
-    log(1, " env file:    "+envs.path);
     log(1, " rslt file:   "+rslt.path);
 
     var cgiwrap = __LOCATION__.parent.parent.clone();
@@ -440,54 +436,39 @@ LCGIHandler.prototype = {
 
     log(1, " CGI wrapper: "+cgiwrap.path);
 
-    log(1, " Write envs file");
-    var ostream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
-    ostream.init(envs, 0x02 | 0x08 | 0x20, 0600, 0);// Hex constants are PR_WRONLY, PR_CREATE_FILE, PR_TRUNCATE
+    var envs = [ "SERVER_SOFTWARE=mozilla/firefox/lcgi",
+                 "SERVER_NAME=localhost",
+                 "GATEWAY_INTERFACE=LCGI/0.1",
+                 // Not SERVER_PROTOCOL
+                 // Not SERVER_PORT
+                 "REQUEST_METHOD=GET", // Should specify whether its GET or POST
+                 "PATH_INFO="+path,
+                 "PATH_TRANSLATED="+path, 
+                 "SCRIPT_NAME="+path, 
+                 "SCRIPT_FILENAME="+path, // Required for Ubuntu's php-cgi
+                 "QUERY_STRING="+args, // Needs to be updated with query details
+                 "REMOTE_HOST=localhost",
+                 "REMOTE_ADDR=127.0.0.1",
+                 // Not AUTH_TYPE
+                 // Not REMOTE_USER
+                 // Not REMOTE_IDENT
+                 // Not CONTENT_TYPE until POST supported
+                 // Not CONTENT_LENGTH until POST supported
+                 // And any other http request headers.
+    ];
 
-    var converter = Cc["@mozilla.org/intl/converter-output-stream;1"].createInstance(Ci.nsIConverterOutputStream);
-    converter.init(ostream, "UTF-8", 0, 0);
+    log(1, " Invoking script " + fileuri.path);
+    var process = subprocess.call({
+        command: "/bin/bash",
+        arguments: [cgiwrap.path, fileuri.path, rslt.path],
+        environment: envs,
+    });
+    process.wait();
+    log(1, " Process returned "+process.exitCode);
 
-    converter.writeString("export SERVER_SOFTWARE=mozilla/firefox/lcgi\n");
-    converter.writeString("export SERVER_NAME=localhost\n");
-    converter.writeString("export GATEWAY_INTERFACE=LCGI/0.1\n");
-    // Not SERVER_PROTOCOL
-    // Not SERVER_PORT
-    converter.writeString("export REQUEST_METHOD=GET\n");// Should specify whether its GET or POST
-    converter.writeString("export PATH_INFO=\""+path+"\"\n");
-    converter.writeString("export PATH_TRANSLATED=\""+path+"\"\n");
-    converter.writeString("export SCRIPT_NAME=\""+path+"\"\n");
-    converter.writeString("export SCRIPT_FILENAME=\""+path+"\"\n"); // Required for Ubuntu's php-cgi
-    converter.writeString("export QUERY_STRING=\""+args+"\"\n");// Needs to be updated with query details
-    converter.writeString("export REMOTE_HOST=localhost\n");
-    converter.writeString("export REMOTE_ADDR=127.0.0.1\n");
-    // Not AUTH_TYPE
-    // Not REMOTE_USER
-    // Not REMOTE_IDENT
-    // Not CONTENT_TYPE until POST supported
-    // Not CONTENT_LENGTH until POST supported
-    // And any other http request headers.
-    converter.close();
-
-    //log(1, " Invoking script " + fileuri.path);
-    //var process = subprocess.call({
-	//command: "/bin/bash",
-    //    arguments: [cgiwrap.path, envs.path, fileuri.path, rslt.path]
-    //});
-    //process.wait();
-
-    var bash    = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
-    bash.initWithPath("/bin/sh");
-    var process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
-    process.init(bash);
-
-    var args = [cgiwrap.path, envs.path, fileuri.path, rslt.path];
-    process.run(true, args, args.length);
-    log(1, " Process returned "+process.exitValue);
-    envs.remove(false);
-
-    if (process.exitValue != 0 && rslt.fileSize == 0) {
-      return new LCGIErrorChannel(aUri, process.exitValue);
-    }
+    //if (process.exitValue != 0 && rslt.fileSize == 0) {
+    //  return new LCGIErrorChannel(aUri, process.exitValue);
+    //}
 
     return new LCGIChannel(aUri, rslt);
   }
@@ -495,5 +476,3 @@ LCGIHandler.prototype = {
 
 // initialization
 var NSGetFactory = XPCOMUtils.generateNSGetFactory([LCGIHandler]);
-
-log(1, " xxxxxxxxxxxxxx loaded LCGI classes");

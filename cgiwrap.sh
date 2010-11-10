@@ -1,19 +1,10 @@
 # Wrapper for a CGI script.
 
-# Takes 3 arguments.
+# Takes 2 arguments.
+script=$1;
+output=$2;
 
-# First argument: name of environment-variable-setting script
-envs=$1;
-echo "Get envs from $envs"
-if [ -f "$envs" ]
-then
-  . $envs
-fi
-
-#Second and third arguments: name of CGI script and name of output file.
-script=$2;
-output=$3;
-
-echo "Executing $script > $output"
+#set > /tmp/jk
+#echo "Executing $script > $output" >> /tmp/jk
 $script > $output
-
+#echo $? >> /tmp/jk
