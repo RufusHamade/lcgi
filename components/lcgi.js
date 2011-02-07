@@ -48,7 +48,7 @@ Cu.import("resource://gre/modules/subprocess.jsm");
 
 // **************************************************************************
 // If you want to trace out the execution of this script, uncomment
-// the two dump lines below and run firefox from the commandline.
+// the dump lines below and run firefox from the commandline.
 function log(lvl, x)
 {
   if (lvl <= 0)
@@ -123,12 +123,6 @@ LCGIErrorChannel.prototype = {
   },
 
   // Channel interfaces
-  // We don't implement the open function as it seems to be deprecated.
-  open: function() {
-    log(1, "LCGIErrorChannel:open");
-    throw Cr.NS_ERROR_NOT_IMPLEMENTED;
-  },
-
   // The browser uses this to start a fetch.
   //
   // Normally we'd start the machinery to fetch the data, and as it
@@ -169,18 +163,13 @@ LCGIErrorChannel.prototype = {
 // LCGI channel implementation
 // Returned by the protocol handler to actually load the page for the browser.
 // Has to implement nsIChannel and nsIRequest.
-// We also implement nsIStreamListener so we get notified of
-// events from aFchan.
-// aRslt should be the File object containing the result.
-function LCGIChannel(aUri, aRslt) {
+function LCGIChannel(aUri, stream) {
   log(1, "LCGIChannel: Created");
-  log(1, " Returning contents of file " + aRslt.path);
-  //this.wrappedJSObject        = this;
+  this._pipe = Cc["@mozilla.org/pipe;1"].createInstance(Ci.nsIPipe);
+  this._pipe.init(true,true,0,0,null);
   this._done                  = false;
-  this._rslt                 = aRslt;
-  var ioServ  = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
-  var rslturi = ioServ.newFileURI(aRslt);
-  this._fchan                 = ioServ.newChannelFromURI(rslturi);
+  this._gotHeaders            = false;
+  this._savedData             = "";
 
   // nsIRequest fields
   this.name                   = aUri;
@@ -203,15 +192,10 @@ function LCGIChannel(aUri, aRslt) {
 }
 
 LCGIChannel.prototype = {
-    QueryInterface : XPCOMUtils.generateQI([Ci.nsISupports, Ci.nsIRequest, Ci.nsIChannel, Ci.nsIRequestObserver, Ci.nsIStreamListener]),
+    QueryInterface : XPCOMUtils.generateQI([Ci.nsISupports, Ci.nsIRequest, Ci.nsIChannel]),
 
   // ***
   // nsIChannel interfaces
-  // We don't implement the open function as it seems to be deprecated.
-  open: function() {
-    log(1, "LCGIChannel: open");
-    throw Cr.NS_ERROR_NOT_IMPLEMENTED;
-  },
 
   // The browser uses this to start a fetch.
   //
@@ -222,14 +206,12 @@ LCGIChannel.prototype = {
     // Start reading the file.  We use ourselves as the listener.
     this._xListener  = aListener;
     this._xContext   = aContext;
-    this._gotHeaders = false;
-    this._fchan.asyncOpen(this, this);
+    this._gotHeaders = false;    
   },
 
   // ***
   // nsIRequest interfaces.  These are (potentially) called by
   // _xListener and other external ops.
-  // We should pass on the function calls to _fchan
   isPending: function() {
     log(1, "LCGIChannel:isPending");
     return !this.done;
@@ -237,95 +219,92 @@ LCGIChannel.prototype = {
 
   cancel: function(aStatus){
     log(1, "LCGIChannel:cancel");
-    this._fchan.cancel(aStatus);
     this.status = aStatus;
     this.done   = true;
   },
 
   suspend: function(aStatus){
     log(1, "LCGIChannel:suspend");
-    this._fchan.suspend(aStatus);
     this.status = aStatus;
   },
 
   resume: function(aStatus){
     log(1, "LCGIChannel:resume");
-    this._fchan.resume(aStatus);
     this.status = aStatus;
   },
 
   // ***
-  // nsIStreamListener interfaces.
-  // These are called by the FileInputStream as it reads the file.
-  onStartRequest: function(aRequest, aContext) {
-    // We basically ignore the onStartRequest.  We need to read some headers
-    // before we start our request.
-    log(1, "LCGIChannel: onStartRequest from fchan");
-  },
+  // This method is invoked by the stdout process callback
+  // We parse any headers in the request and pass on the data to _xListener.
+  consumeData: function(process, data) {
+    log(1, "LCGIChannel: consumeData");
 
-  onDataAvailable: function(aRequest, aContext, aIStream, aOffset, aCount) {
-    log(1, "LCGIChannel: onDataAvailable from fchan");
+    if (this._savedData.length > 0) {
+      log(1, " Reusing saved data");
+      data = this._savedData + data;
+      this._savedData = "";
+    }
+
     if (!this._gotHeaders){
       log(1, " Parsing headers");
       // Most of the work happens here.  If we haven't read the headers,
       // read them in now and issue our onStartRequest.
-      var sis = Cc["@mozilla.org/scriptableinputstream;1"].createInstance(Ci.nsIScriptableInputStream);
-      sis.init(aIStream);
-      var data  = sis.read(aCount);
       var start = 0;
       do {
         var end = data.indexOf('\n', start);
         if (end < 0){
           log(1, " No newline found");
-          break;
+          this._savedData = data.substring(start);
+          return;
         }
+
         var line = data.substring(start, end);
         log(1, " Line "+line);
         var ctre =/Content-type:\s*(\S+)/i;
         var match = ctre.exec(line);
         if (match){
-          log(1, " Got content type "+match[1]);
+          log(1, "  Got content type "+match[1]);
           this.contentType = match[1];
         }
 
         var stre =/Status:\s*(\S+)/i;
         match = stre.exec(line);
         if (match){
-          log(1, " Got status "+match[1]);
+          log(1, "  Got status "+match[1]);
           this.status = parseInt(match[1]);
         }
 
         start = end+1;
-      } while (start < aCount && line.length > 2);
+      } while (start < data.length && line.length > 2);
 
-      if (start >= aCount) {
+      if (start >= data.length) {
         // We may have found headers, but we don't have any content.
         // Show the headers to the client instead.
         start = 0;
       }
 
-      log(1, " Pass rest of data to _xListener");
       data = data.substring(start);
-      var pipe = Cc["@mozilla.org/pipe;1"].createInstance(Ci.nsIPipe);
-      pipe.init(true,true,0,0,null);
-      pipe.outputStream.write(data, data.length);
-      pipe.outputStream.close();
 
+      this._xListener.onStartRequest(this, this._xContext);
       this._gotHeaders = true;
-      this._xListener.onStartRequest(this,this._xContext);
-      this._xListener.onDataAvailable(this, this._xContext, pipe.inputStream, 0, data.length);
     }
-    else {
-      log(1, " Passing remainder to listener");
-      this._xListener.onDataAvailable(this, this._xContext, aIStream, aOffset, aCount);
-    }
-  },
 
-  onStopRequest: function(aRequest, aContext, aStatusCode) {
-    log(1, "LCGIChannel: onStopRequest from fchan");
-    this.status = aStatusCode;
-    this._xListener.onStopRequest(this,this._xContext, this.status);
-    this._rslt.remove(false);
+    log(1, " Pass data to _xListener");
+    this._pipe.outputStream.write(data, data.length);
+    this._xListener.onDataAvailable(this, this._xContext, this._pipe.inputStream, 0, data.length);
+  },
+  
+  // ***
+  // This method is invoked by the onFinished process callback
+  // Pass on any data we've been storing in the _savedData to _xListener, then invoke onStopRequest.
+  consumeClose: function(process) {
+    log(1, "LCGIChannel: consumeClose");
+    if (this._savedData.length > 0) {
+      this._xListener.onStartRequest(this, this._xContext);
+      this._pipe.outputStream.write(this._savedData, this._savedData.length);
+      this._xListener.onDataAvailable(this, this._xContext, this._pipe.inputStream, 0, this._savedData.length);
+    }
+    this._xListener.onStopRequest(this, this._xContext, this.status);
   }
 };
 
@@ -417,25 +396,6 @@ LCGIHandler.prototype = {
       return chan;
     }
 
-
-    var ds      = Cc["@mozilla.org/file/directory_service;1"].getService(Ci.nsIProperties);
-    var tmpdir  = ds.get("TmpD", Ci.nsIFile);
-    var rslt    = tmpdir.clone();
-    rslt.append("lcgi-rslt");
-
-    // Make sure filenames are unique.  CreateUnique updates the the
-    // nsIFile with the unique filename.  It also opens and closes the file.
-    // Probably to ensure file permissions get set correctly or something.
-    // Rather strange API but there you go.
-    rslt.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
-
-    log(1, " rslt file:   "+rslt.path);
-
-    var cgiwrap = __LOCATION__.parent.parent.clone();
-    cgiwrap.append("cgiwrap.sh");
-
-    log(1, " CGI wrapper: "+cgiwrap.path);
-
     var envs = [ "SERVER_SOFTWARE=mozilla/firefox/lcgi",
                  "SERVER_NAME=localhost",
                  "GATEWAY_INTERFACE=LCGI/0.1",
@@ -449,6 +409,7 @@ LCGIHandler.prototype = {
                  "QUERY_STRING="+args, // Needs to be updated with query details
                  "REMOTE_HOST=localhost",
                  "REMOTE_ADDR=127.0.0.1",
+                 "REDIRECT_STATUS=200", // PHP CGI workaround.
                  // Not AUTH_TYPE
                  // Not REMOTE_USER
                  // Not REMOTE_IDENT
@@ -458,19 +419,26 @@ LCGIHandler.prototype = {
     ];
 
     log(1, " Invoking script " + fileuri.path);
+    var channel = new LCGIChannel(aUri);
+
     var process = subprocess.call({
-        command: "/bin/bash",
-        arguments: [cgiwrap.path, fileuri.path, rslt.path],
+        command: file,
+        arguments: [fileuri.path],
         environment: envs,
+        stdout: subprocess.ReadablePipe(function(data) {
+            log(1, "Subprocess: Process wrote some data "+ data.length);
+            channel.consumeData(process, data);
+        }),
+        mergeStderr: true,
+        onFinished: subprocess.Terminate(function() {
+            log(1, "Subprocess: Process returned "+process.exitCode);
+            channel.consumeClose(process);
+        }),
     });
-    process.wait();
-    log(1, " Process returned "+process.exitCode);
 
-    //if (process.exitValue != 0 && rslt.fileSize == 0) {
-    //  return new LCGIErrorChannel(aUri, process.exitValue);
-    //}
+    log(1, " Process executed");
 
-    return new LCGIChannel(aUri, rslt);
+    return channel;
   }
 };
 
